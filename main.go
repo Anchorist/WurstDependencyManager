@@ -9,15 +9,35 @@ import (
 	"os/exec"
 	"strings"
 
+	"golang.org/x/sys/windows/registry"
+
+	"github.com/gonutz/w32"
 	"github.com/google/go-github/github"
 )
 
 func main() {
 
+	version, err := checkGameVersion()
+	if err != nil {
+		fmt.Print("Warcraft III Not detected in system!")
+		os.Exit(1)
+	}
+
+	fmt.Printf("Detected Warcraft III version %s", version)
+
 	client := github.NewClient(nil)
 
 	mainCommands := []string{"require"}
 
+	if len(os.Args) < 2 {
+		fmt.Print(`Ketch - Wurst Dependency Manager
+
+Commands:
+init - create Wurst map repository
+up - updates dependencies (basing on wurst.deps file)
+require - adds dependency`)
+		os.Exit(1)
+	}
 	mainCommand := os.Args[1]
 
 	nodesToCheck := []string{
@@ -31,7 +51,7 @@ func main() {
 		"_build/WurstRunMap.w3x",
 	}
 
-	err := checkFiles(nodesToCheck)
+	err = checkFiles(nodesToCheck)
 
 	if err != nil {
 		fmt.Print(err)
@@ -114,4 +134,35 @@ func checkIfExists(directory string) error {
 		return errors.New(directory + " directory missing!")
 	}
 	return errorMsg
+}
+
+func checkGameVersion() (version string, err error) {
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, `SOFTWARE\WOW6432Node\Blizzard Entertainment\Warcraft III`, registry.ALL_ACCESS)
+	s, _, err := k.GetStringValue("GamePath")
+
+	size := w32.GetFileVersionInfoSize(s)
+	if size <= 0 {
+		panic("GetFileVersionInfoSize failed")
+	}
+
+	info := make([]byte, size)
+	ok := w32.GetFileVersionInfo(s, info)
+	if !ok {
+		panic("GetFileVersionInfo failed")
+	}
+
+	fixed, ok := w32.VerQueryValueRoot(info)
+	if !ok {
+		panic("VerQueryValueRoot failed")
+	}
+	ver := fixed.FileVersion()
+	version = fmt.Sprintf(
+		"%d.%d.%d.%d\n",
+		ver&0xFFFF000000000000>>48,
+		ver&0x0000FFFF00000000>>32,
+		ver&0x00000000FFFF0000>>16,
+		ver&0x000000000000FFFF>>0,
+	)
+
+	return version, err
 }
